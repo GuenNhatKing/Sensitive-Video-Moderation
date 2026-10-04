@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs & Output
+*.log
+MobilenetLog/
+ResnetLog/
+mobilenet_bad_clips/
+resnet_bad_clips/
+
+# External cloned repositories (TransNetV2 được clone riêng)
+TransNetV2/
