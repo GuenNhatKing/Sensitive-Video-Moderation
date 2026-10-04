@@ -1,4 +1,4 @@
-# Hệ Thống Kiểm Duyệt Nội Dung Video Nhạy Cảm (Adult Video Detection)
+# Sensitive-Video-Moderation
 
 Dự án cung cấp hai giải pháp Deep Learning phát hiện và kiểm duyệt video có nội dung người lớn/nhạy cảm:
 1. **Pipeline ResNet-50 kết hợp TransNetV2**: Phân tích đa tầng theo phân đoạn cảnh (Shot Boundary Detection), kết hợp lấy mẫu thưa (Sparse) - dày (Dense) và kiểm tra tính nhất quán thời gian (Temporal Consistency).
@@ -7,7 +7,7 @@ Dự án cung cấp hai giải pháp Deep Learning phát hiện và kiểm duy�
 ---
 
 ## Mục Lục
-- [Hệ Thống Kiểm Duyệt Nội Dung Video Nhạy Cảm (Adult Video Detection)](#hệ-thống-kiểm-duyệt-nội-dung-video-nhạy-cảm-adult-video-detection)
+- [Sensitive-Video-Moderation](#sensitive-video-moderation)
   - [Mục Lục](#mục-lục)
   - [1. Yêu Cầu Môi Trường \& Cài Đặt](#1-yêu-cầu-môi-trường--cài-đặt)
     - [1.1. Yêu cầu hệ thống](#11-yêu-cầu-hệ-thống)
@@ -155,7 +155,8 @@ Chiến lược kết hợp **Phân cảnh + Lấy mẫu thưa/dày + Nhất qu�
 
 * **Dynamic Top-K**: Lấy trung bình các frame có xác suất cao nhất của vùng (tỷ lệ cấu hình theo tổng số frame).
 * **Temporal Consistency (Tính nhất quán thời gian)**: Yêu cầu chuỗi vi phạm liên tục trong cùng một shot, với khoảng cách tối đa cho phép được tính động:
-  $$\text{max\_gap\_sec} = \text{required\_consistent\_frames} \times \text{sampling\_interval\_sec}$$
+  $$T_{\mathrm{gap}} = N_{\mathrm{consistent}} \times \Delta t_{\mathrm{sampling}}$$
+  *(tương đương trong mã nguồn: `max_gap_sec = required_consistent_frames * sampling_interval_sec`)*
 
 ---
 
