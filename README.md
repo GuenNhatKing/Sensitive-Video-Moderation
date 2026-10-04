@@ -1,4 +1,4 @@
-# PBL6: Hệ Thống Kiểm Duyệt Nội Dung Video Nhạy Cảm (Adult Video Detection)
+# Hệ Thống Kiểm Duyệt Nội Dung Video Nhạy Cảm (Adult Video Detection)
 
 Dự án cung cấp hai giải pháp Deep Learning phát hiện và kiểm duyệt video có nội dung người lớn/nhạy cảm:
 1. **Pipeline ResNet-50 kết hợp TransNetV2**: Phân tích đa tầng theo phân đoạn cảnh (Shot Boundary Detection), kết hợp lấy mẫu thưa (Sparse) - dày (Dense) và kiểm tra tính nhất quán thời gian (Temporal Consistency).
@@ -7,17 +7,27 @@ Dự án cung cấp hai giải pháp Deep Learning phát hiện và kiểm duy�
 ---
 
 ## Mục Lục
-- [1. Yêu Cầu Môi Trường & Cài Đặt](#1-yêu-cầu-môi-trường--cài-đặt)
-- [2. Hướng Dẫn TransNetV2 & Chuyển Đổi Trọng Số (Weights)](#2-hướng-dẫn-transnetv2--chuyển-đổi-trọng-số-weights)
-- [3. Cấu Hình Biến Môi Trường (.env)](#3-cấu-hình-biến-môi-trường-env)
-- [4. Tóm Tắt Luồng Hoạt Động](#4-tóm-tắt-luồng-hoạt-động)
-  - [4.1. Luồng Pipeline ResNet-50 + TransNetV2](#41-luồng-pipeline-resnet-50--transnetv2)
-  - [4.2. Luồng Pipeline MobileNetV3](#42-luồng-pipelin-mobilenetv3)
-- [5. Hướng Dẫn Thực Thi & Tham Số Dòng Lệnh](#5-hướng-dẫn-thực-thi--tham-số-dòng-lệnh)
-  - [5.1. Chạy Pipeline ResNet-50](#51-chạy-pipeline-resnet-50)
-  - [5.2. Cắt Clip Vi Phạm (ResNet)](#52-cắt-clip-vi-phạm-resnet)
-  - [5.3. Chạy Pipeline MobileNetV3](#53-chạy-pipeline-mobilenetv3)
-  - [5.4. Cắt Clip Vi Phạm (MobileNet)](#54-cắt-clip-vi-phạm-mobilenet)
+- [Hệ Thống Kiểm Duyệt Nội Dung Video Nhạy Cảm (Adult Video Detection)](#hệ-thống-kiểm-duyệt-nội-dung-video-nhạy-cảm-adult-video-detection)
+  - [Mục Lục](#mục-lục)
+  - [1. Yêu Cầu Môi Trường \& Cài Đặt](#1-yêu-cầu-môi-trường--cài-đặt)
+    - [1.1. Yêu cầu hệ thống](#11-yêu-cầu-hệ-thống)
+    - [1.2. Khởi tạo môi trường ảo và cài đặt thư viện](#12-khởi-tạo-môi-trường-ảo-và-cài-đặt-thư-viện)
+  - [2. Hướng Dẫn TransNetV2 \& Chuyển Đổi Trọng Số (Weights)](#2-hướng-dẫn-transnetv2--chuyển-đổi-trọng-số-weights)
+    - [Cách 1: Sử dụng thư viện pip (Khuyên dùng)](#cách-1-sử-dụng-thư-viện-pip-khuyên-dùng)
+    - [Cách 2: Tải TransNetV2 từ GitHub và tự Convert Weights sang PyTorch](#cách-2-tải-transnetv2-từ-github-và-tự-convert-weights-sang-pytorch)
+  - [3. Cấu Hình Biến Môi Trường (.env)](#3-cấu-hình-biến-môi-trường-env)
+  - [4. Tóm Tắt Luồng Hoạt Động](#4-tóm-tắt-luồng-hoạt-động)
+    - [4.1. Luồng Pipeline ResNet-50 + TransNetV2](#41-luồng-pipeline-resnet-50--transnetv2)
+    - [4.2. Luồng Pipeline MobileNetV3](#42-luồng-pipeline-mobilenetv3)
+  - [5. Hướng Dẫn Thực Thi \& Tham Số Dòng Lệnh](#5-hướng-dẫn-thực-thi--tham-số-dòng-lệnh)
+    - [5.1. Chạy Pipeline ResNet-50](#51-chạy-pipeline-resnet-50)
+      - [Bảng tham số `resnet_adult_video_detect.py`:](#bảng-tham-số-resnet_adult_video_detectpy)
+    - [5.2. Cắt Clip Vi Phạm (ResNet)](#52-cắt-clip-vi-phạm-resnet)
+      - [Bảng tham số `cut_adult_regions.py`:](#bảng-tham-số-cut_adult_regionspy)
+    - [5.3. Chạy Pipeline MobileNetV3](#53-chạy-pipeline-mobilenetv3)
+      - [Bảng tham số `mobilenet_adult_video_detect.py`:](#bảng-tham-số-mobilenet_adult_video_detectpy)
+    - [5.4. Cắt Clip Vi Phạm (MobileNet)](#54-cắt-clip-vi-phạm-mobilenet)
+      - [Bảng tham số `cut_mobilenet_regions.py`:](#bảng-tham-số-cut_mobilenet_regionspy)
 
 ---
 
