@@ -171,8 +171,8 @@ Chiến lược **Xử lý dòng On-device + Lọc SSIM + Suy luận thời gian
 [Bước 1: Frame Extractor Stream] ─────► Đọc tuần tự từng frame dưới dạng Generator trên RAM
       │
       ▼
-[Bước 2: SSIM Filter Stream] ─────────► Tính Structural Similarity giữa Frame(t) và Frame(t-1)
-      │                                 └─ Loại bỏ khung hình trùng lặp (giảm 10% - 30% tải)
+[Bước 2: SSIM Filter Stream] ─────────► Thu nhỏ ảnh về 224x224 & tính SSIM giữa Frame(t) và Frame(t-1)
+      │                                 └─ Loại bỏ khung hình trùng lặp (tăng tốc SSIM ~10-50x, giảm 10% - 30% tải)
       ▼
 [Bước 3: MobileNetV3 Batch Inference] ─► Gom batch (16 frames), resize trực tiếp 224x224
       │                                 ├─ Tự động nạp CUDA & kích hoạt GPU (Dynamic Memory Growth)
@@ -248,6 +248,7 @@ python mobilenet/mobilenet_adult_video_detect.py --video "../Test/normal-1.mp4" 
 | `--out_dir` | `str` | Lấy từ `.env` | Thư mục lưu kết quả JSON |
 | `--model` | `str` | Lấy từ `.env` | Đường dẫn file mô hình MobileNet (`.keras`) |
 | `--ssim` | `float` | `0.95` | Ngưỡng tương đồng SSIM để loại bỏ frame trùng |
+| `--ssim_size` | `int` | `224` | Kích thước thu nhỏ ảnh trước khi tính SSIM (WxH) |
 | `--adult_threshold` | `float` | `0.85` | Ngưỡng xác suất để phân loại một frame là Adult |
 | `--batch_size` | `int` | `16` | Số lượng frame gom trong một batch suy luận |
 | `--save_intermediate`| `flag` | `False` | Lưu các frame ảnh đã trích xuất/lọc ra đĩa |

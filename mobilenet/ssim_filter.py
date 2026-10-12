@@ -5,13 +5,37 @@ import os
 from skimage.metrics import structural_similarity
 
 class SSIMFilter:
-    def __init__(self, ssim_threshold=0.95):
+    def __init__(self, ssim_threshold=0.95, target_size=(224, 224)):
         self.ssim_threshold = ssim_threshold
-        logging.info(f"Khởi tạo Bộ lọc SSIM (Ngưỡng loại bỏ: {self.ssim_threshold})")
+        if isinstance(target_size, int):
+            self.target_size = (target_size, target_size)
+        elif target_size is not None:
+            self.target_size = tuple(target_size)
+        else:
+            self.target_size = None
+
+        size_str = f"{self.target_size[0]}x{self.target_size[1]}" if self.target_size else "Gốc"
+        logging.info(f"Khởi tạo Bộ lọc SSIM (Ngưỡng loại bỏ: {self.ssim_threshold}, Kích thước lọc SSIM: {size_str})")
+
+    def _resize_frame(self, frame, target_size=None):
+        """Bộ lọc thu nhỏ ảnh về kích thước mục tiêu (mặc định 224 x 224) để tối ưu tốc độ SSIM."""
+        size = target_size or self.target_size
+        return cv2.resize(frame, size, interpolation=cv2.INTER_LINEAR)
 
     def _rgb_to_gray(self, frame_bgr):
         """Chuyển đổi ảnh màu OpenCV (BGR) sang ảnh xám (Grayscale) để tính SSIM."""
         return cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+
+    def _preprocess_frame(self, frame_bgr):
+        """
+        Bộ lọc tiền xử lý khung hình trước khi tính SSIM:
+        1. Chuyển sang ảnh xám (Grayscale) để chỉ xử lý trên 1 kênh.
+        2. Thu nhỏ ảnh về 224 x 224 (target_size) để tăng tốc độ tính toán SSIM lên nhiều lần.
+        """
+        gray = self._rgb_to_gray(frame_bgr)
+        if self.target_size:
+            return self._resize_frame(gray)
+        return gray
 
     def filter_stream(self, frame_generator, output_dir=None, save_to_disk=False):
         """
@@ -33,14 +57,14 @@ class SSIMFilter:
                 frame_index = sample["frame_index"]
                 current_bgr_frame = sample["frame_data"]
                 
-                # Chuyển sang ảnh xám để tối ưu tốc độ so sánh
-                current_gray_frame = self._rgb_to_gray(current_bgr_frame)
+                # Áp dụng bộ lọc thu nhỏ về 224x224 và chuyển ảnh xám trước khi tính SSIM để tối ưu tốc độ
+                current_gray_frame = self._preprocess_frame(current_bgr_frame)
 
                 # Frame đầu tiên luôn được giữ lại
                 if previous_gray_frame is None:
                     is_kept = True
                 else:
-                    # Tính SSIM giữa Frame(t) và Frame(t-1)
+                    # Tính SSIM giữa Frame(t) và Frame(t-1) trên ảnh đã thu nhỏ 224x224
                     ssim_score = structural_similarity(
                         previous_gray_frame, 
                         current_gray_frame, 

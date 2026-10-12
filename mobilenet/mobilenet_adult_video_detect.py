@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--out_dir", type=str, default=get_env("MOBILENET_OUT_DIR", "../MobilenetLog", resolve=True), help="Thư mục lưu log/kết quả")
     parser.add_argument("--model", type=str, default=get_env("MOBILENET_MODEL", "models/mobilenetv3_small_adult_normal.keras", resolve=True), help="Đường dẫn mô hình MobileNet (.keras)")
     parser.add_argument("--ssim", type=float, default=0.95, help="Ngưỡng SSIM để loại bỏ frame")
+    parser.add_argument("--ssim_size", type=int, default=224, help="Kích thước thu nhỏ ảnh trước khi tính SSIM (mặc định: 224)")
     parser.add_argument("--adult_threshold", type=float, default=0.85, help="Ngưỡng xác suất phân loại Adult")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size xử lý frame")
     parser.add_argument("--early_stop", action="store_true", help="Dừng sớm ngay khi phát hiện frame đầu tiên vi phạm Adult")
@@ -39,7 +40,7 @@ def main():
 
     # 1. Khởi tạo các object
     extractor = FrameExtractor()
-    ssim_filter = SSIMFilter(ssim_threshold=args.ssim)
+    ssim_filter = SSIMFilter(ssim_threshold=args.ssim, target_size=(args.ssim_size, args.ssim_size))
     classifier = MobileNetClassifier(model_path=args.model, batch_size=args.batch_size, adult_threshold=args.adult_threshold)
     evaluator = MobileNetEvaluator()
 
