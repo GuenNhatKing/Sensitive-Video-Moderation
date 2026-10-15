@@ -16,7 +16,7 @@ from env_config import get_env
 # Import các module trong pipeline
 from extract_frames import FrameExtractor               
 from ssim_filter import SSIMFilter                     
-from baseline.mobilenet_inference import MobileNetClassifier    
+from mobilenet_inference import MobileNetClassifier    
 from baseline_evaluator import MobileNetEvaluator     
 
 def main():
