@@ -214,11 +214,35 @@ class ResNetClassifier:
         return tensor, ratio_type, orig_w, orig_h, target_w, target_h
 
     def _predict_batch(self, tensors):
-        batch = torch.stack(tensors, dim=0).to(self.device, non_blocking=True)
-        with torch.inference_mode():
-            logits = self.model(batch)
-            probabilities = torch.softmax(logits, dim=1)
-        return probabilities
+        if not tensors:
+            return torch.empty((0, len(self.classes)), device=self.device)
+
+        # Kiểm tra nếu tất cả tensors cùng kích thước
+        first_shape = tensors[0].shape
+        if all(t.shape == first_shape for t in tensors):
+            batch = torch.stack(tensors, dim=0).to(self.device, non_blocking=True)
+            with torch.inference_mode():
+                logits = self.model(batch)
+                probabilities = torch.softmax(logits, dim=1)
+            return probabilities
+
+        # Nếu batch chứa nhiều tỉ lệ/kích thước khác nhau: gom nhóm theo shape để chạy batch inference
+        shape_groups = {}
+        for idx, t in enumerate(tensors):
+            s = tuple(t.shape)
+            shape_groups.setdefault(s, []).append((idx, t))
+
+        results = [None] * len(tensors)
+        for s, group in shape_groups.items():
+            indices, group_tensors = zip(*group)
+            batch = torch.stack(list(group_tensors), dim=0).to(self.device, non_blocking=True)
+            with torch.inference_mode():
+                logits = self.model(batch)
+                probs = torch.softmax(logits, dim=1)
+            for idx, p in zip(indices, probs):
+                results[idx] = p
+
+        return torch.stack(results, dim=0)
 
     def predict_samples(
         self,
