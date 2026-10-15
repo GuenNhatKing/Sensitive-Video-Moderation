@@ -1,27 +1,27 @@
 import os
 import json
 import logging
+from pathlib import Path
 import numpy as np
 import cv2
 
+# MobileNetV3-Small chạy quét thô trên CPU (thiết kế on-device)
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 import tensorflow as tf
 tf.get_logger().setLevel("ERROR")
 
-# Kích hoạt Memory Growth cho GPU nếu có
 try:
-    gpus = tf.config.list_physical_devices("GPU")
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
+    tf.config.set_visible_devices([], "GPU")
 except Exception:
     pass
 
 
 class CoarseMobileNetFilter:
     """
-    THAY ĐỔI 2: Quét thô Độ nhạy cao bằng MobileNetV3-Small
+    Giai đoạn 2: Quét thô Độ nhạy cao bằng MobileNetV3-Small trên CPU
     - Mục tiêu: Lọc bỏ nhanh 85% - 90% khung hình bình thường bằng mô hình siêu nhẹ (0.94M params),
       giữ lại 100% các tâm điểm nghi vấn (Recall = 100%).
     - Hàm lọc phễu: p_mobile(t) = MobileNetV3_Small( resize(f_t, 224, 224) )
@@ -32,23 +32,23 @@ class CoarseMobileNetFilter:
     """
 
     def __init__(self, model_path, batch_size=32, rejection_threshold=0.35):
-        self.model_path = str(model_path)
+        self.model_path = str(Path(model_path).resolve())
         self.batch_size = batch_size
         self.rejection_threshold = rejection_threshold
         self.target_size = (224, 224)
 
         logging.info(
-            f"Khởi tạo CoarseMobileNetFilter (Batch={self.batch_size}, "
+            f"Khởi tạo CoarseMobileNetFilter CPU (Batch={self.batch_size}, "
             f"Threshold={self.rejection_threshold}, Input={self.target_size})"
         )
         self._load_model()
 
     def _load_model(self):
-        logging.info(f"Đang tải MobileNetV3-Small từ: {self.model_path}...")
+        logging.info(f"Đang tải MobileNetV3-Small (CPU) từ: {self.model_path}...")
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"Không tìm thấy mô hình MobileNet: {self.model_path}")
         self.model = tf.keras.models.load_model(self.model_path)
-        logging.info("Load MobileNetV3-Small thành công.")
+        logging.info("Tải MobileNetV3-Small thành công trên CPU.")
 
     def _preprocess_frame(self, frame_bgr):
         resized = cv2.resize(frame_bgr, self.target_size, interpolation=cv2.INTER_LINEAR)
@@ -65,13 +65,11 @@ class CoarseMobileNetFilter:
             logging.info("Stage 2: Không có candidate frame nào từ Stage 1.")
             return [], []
 
-        logging.info(f"Stage 2: Bắt đầu quét thô {len(samples)} frames với MobileNetV3-Small...")
+        logging.info(f"Stage 2: Bắt đầu quét thô {len(samples)} frames với MobileNetV3-Small (CPU)...")
 
-        # Chuẩn bị dữ liệu theo batch
         batch_arrays = [self._preprocess_frame(s["frame_data"]) for s in samples]
         batch_input = np.array(batch_arrays, dtype=np.float32)
 
-        # Suy luận theo batch_size = 32
         probabilities = self.model.predict(batch_input, batch_size=self.batch_size, verbose=0)
 
         all_results = []
@@ -104,7 +102,6 @@ class CoarseMobileNetFilter:
             all_results.append(result_entry)
 
             if is_anchor:
-                # Đưa mốc t vào tập Tâm điểm nghi vấn: Anchor_Set A = A U {t_0}
                 anchor_entry = dict(sample)
                 anchor_entry["p_mobile"] = round(p_mobile, 6)
                 anchor_entry["p_normal"] = round(p_normal, 6)
@@ -117,10 +114,9 @@ class CoarseMobileNetFilter:
         )
 
         if save_to_disk and output_json_path:
-            output_dir = os.path.dirname(output_json_path)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            with open(output_json_path, "w", encoding="utf-8") as f:
+            out_p = Path(output_json_path)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_p, "w", encoding="utf-8") as f:
                 json.dump({
                     "total_candidates": len(samples),
                     "rejected_count": len(samples) - len(anchor_set),
@@ -131,4 +127,3 @@ class CoarseMobileNetFilter:
             logging.info(f"Đã lưu kết quả Stage 2: {output_json_path}")
 
         return all_results, anchor_set
-

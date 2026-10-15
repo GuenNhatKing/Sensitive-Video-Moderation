@@ -197,11 +197,11 @@ python proposed/cut_adult_regions.py --json "../ProposedLog/A_01/08_final_decisi
 
 ### 4.3. Chạy Pipeline Tham Chiếu (Baseline)
 ```bash
-python baseline/mobilenet_adult_video_detect.py --video "../TestDataset/Normal/N_01.mp4"
+python baseline/baseline_adult_video_detect.py --video "../TestDataset/Normal/N_01.mp4"
 ```
 *Để kích hoạt dừng sớm ngay khi gặp frame nhạy cảm đầu tiên:*
 ```bash
-python baseline/mobilenet_adult_video_detect.py --video "../TestDataset/Normal/N_01.mp4" --early_stop
+python baseline/baseline_adult_video_detect.py --video "../TestDataset/Normal/N_01.mp4" --early_stop
 ```
 
 ---
@@ -209,7 +209,7 @@ python baseline/mobilenet_adult_video_detect.py --video "../TestDataset/Normal/N
 ### 4.4. Cắt Clip Vi Phạm (Baseline)
 Sau khi có file `12_final_decision.json`:
 ```bash
-python baseline/cut_mobilenet_regions.py --json "../BaselineLog/N_01/12_final_decision.json"
+python baseline/cut_adult_regions.py --json "../BaselineLog/N_01/12_final_decision.json"
 ```
 
 ---

@@ -9,6 +9,8 @@ from pathlib import Path
 # Đưa thư mục src vào sys.path để import module dùng chung
 CURRENT_DIR = Path(__file__).resolve().parent
 SRC_DIR = CURRENT_DIR.parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -48,7 +50,7 @@ def cut_adult_regions(json_path, output_dir=None, override_video_path=None, padd
 
     # Cấu hình thư mục đầu ra
     if not output_dir:
-        output_dir = get_env("PROPOSED_CLIPS_OUT_DIR", get_env("RESNET_CLIPS_OUT_DIR", "../proposed_bad_clips"))
+        output_dir = get_env("PROPOSED_CLIPS_OUT_DIR", "proposed_bad_clips", resolve=True)
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     video_name = Path(video_path).stem

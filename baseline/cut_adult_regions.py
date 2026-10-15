@@ -9,17 +9,19 @@ from pathlib import Path
 # Đưa thư mục src vào sys.path để import module dùng chung
 CURRENT_DIR = Path(__file__).resolve().parent
 SRC_DIR = CURRENT_DIR.parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from env_config import get_env, resolve_video_path
 
-def cut_mobilenet_regions(json_path, output_dir=None, override_video_path=None, padding_sec=1.0, max_gap_sec=1.5):
+def cut_adult_regions(json_path, output_dir=None, override_video_path=None, padding_sec=1.0, max_gap_sec=1.5):
     """
-    Đọc JSON của MobileNet, gom cụm các frame Adult gần nhau thành Region và cắt video.
+    Đọc JSON của Baseline, gom cụm các frame Adult gần nhau thành Region và cắt video.
     Tự động xác định đường dẫn video từ JSON mà không cần truyền --video.
     """
-    logging.info(f"Đọc file JSON MobileNet: {json_path}")
+    logging.info(f"Đọc file JSON Baseline: {json_path}")
     
     if not os.path.exists(json_path):
         logging.error(f"Không tìm thấy file JSON: {json_path}")
@@ -72,7 +74,7 @@ def cut_mobilenet_regions(json_path, output_dir=None, override_video_path=None, 
 
     # Cấu hình thư mục đầu ra
     if not output_dir:
-        output_dir = get_env("MOBILENET_CLIPS_OUT_DIR", "../mobilenet_bad_clips")
+        output_dir = get_env("BASELINE_CLIPS_OUT_DIR", "baseline_bad_clips", resolve=True)
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     video_name = Path(video_path).stem
@@ -89,7 +91,7 @@ def cut_mobilenet_regions(json_path, output_dir=None, override_video_path=None, 
         final_start = max(0, start_sec - padding_sec)
         final_end = end_sec + padding_sec
 
-        out_filename = f"{video_name}_mobilenet_reg{idx:02d}_{final_start:.1f}s_to_{final_end:.1f}s.mp4"
+        out_filename = f"{video_name}_baseline_reg{idx:02d}_{final_start:.1f}s_to_{final_end:.1f}s.mp4"
         out_filepath = os.path.join(output_dir, out_filename)
 
         cmd = [
@@ -109,12 +111,15 @@ def cut_mobilenet_regions(json_path, output_dir=None, override_video_path=None, 
         except subprocess.CalledProcessError as e:
             logging.error(f"Lỗi khi cắt Region {idx}: {e}")
 
-    logging.info("Hoàn tất việc cắt video MobileNet!")
+    logging.info("Hoàn tất việc cắt video Baseline!")
+
+# Alias tương thích
+cut_mobilenet_regions = cut_adult_regions
 
 def main():
-    parser = argparse.ArgumentParser(description="Gom cụm và cắt video từ kết quả MobileNet")
+    parser = argparse.ArgumentParser(description="Gom cụm và cắt video từ kết quả Baseline")
     parser.add_argument("--json", type=str, required=True, help="Đường dẫn đến 12_final_decision.json")
-    parser.add_argument("--out_dir", type=str, default=get_env("MOBILENET_CLIPS_OUT_DIR", "../mobilenet_bad_clips", resolve=True), help="Thư mục lưu")
+    parser.add_argument("--out_dir", type=str, default=get_env("BASELINE_CLIPS_OUT_DIR", "baseline_bad_clips", resolve=True), help="Thư mục lưu")
     parser.add_argument("--video", type=str, default=None, help="(Tuỳ chọn) Ghi đè đường dẫn video gốc nếu file JSON trỏ sai")
     parser.add_argument("--pad", type=float, default=1.0, help="Mở rộng X giây ở hai đầu (Mặc định 1.0)")
     parser.add_argument("--gap", type=float, default=1.5, help="Khoảng cách tối đa giữa các frame để gom cụm (Mặc định 1.5)")
@@ -123,7 +128,7 @@ def main():
     
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
     
-    cut_mobilenet_regions(
+    cut_adult_regions(
         json_path=args.json, 
         output_dir=args.out_dir, 
         override_video_path=args.video, 

@@ -6,6 +6,8 @@ from pathlib import Path
 # Đưa thư mục src vào sys.path để import module dùng chung
 CURRENT_DIR = Path(__file__).resolve().parent
 SRC_DIR = CURRENT_DIR.parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -14,13 +16,13 @@ from env_config import get_env
 # Import các module trong pipeline
 from extract_frames import FrameExtractor               
 from ssim_filter import SSIMFilter                     
-from mobilenet_inference import MobileNetClassifier    
-from mobilenet_evaluator import MobileNetEvaluator     
+from baseline.mobilenet_inference import MobileNetClassifier    
+from baseline_evaluator import MobileNetEvaluator     
 
 def main():
     parser = argparse.ArgumentParser(description="Privacy-preserving On-device Video Detection (MobileNet)")
     parser.add_argument("--video", type=str, required=True, help="Đường dẫn đến file video")
-    parser.add_argument("--out_dir", type=str, default=get_env("MOBILENET_OUT_DIR", "../MobilenetLog", resolve=True), help="Thư mục lưu log/kết quả")
+    parser.add_argument("--out_dir", type=str, default=get_env("BASELINE_OUT_DIR", "BaselineLog", resolve=True), help="Thư mục lưu log/kết quả")
     parser.add_argument("--model", type=str, default=get_env("MOBILENET_MODEL", "models/mobilenetv3_small_adult_normal.keras", resolve=True), help="Đường dẫn mô hình MobileNet (.keras)")
     parser.add_argument("--ssim", type=float, default=0.95, help="Ngưỡng SSIM để loại bỏ frame")
     parser.add_argument("--ssim_size", type=int, default=224, help="Kích thước thu nhỏ ảnh trước khi tính SSIM (mặc định: 224)")

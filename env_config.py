@@ -5,6 +5,7 @@ from pathlib import Path
 SRC_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SRC_DIR.parent
 
+
 def load_env(env_path=None):
     """
     Tự động tìm và nạp các biến môi trường từ file .env vào os.environ.
@@ -33,36 +34,39 @@ def load_env(env_path=None):
                 if k not in os.environ:
                     os.environ[k] = v
 
+
 def resolve_path(path_str):
     """
-    Giải quyết đường dẫn một cách thông minh:
+    Chuẩn hóa đường dẫn:
     - Nếu là đường dẫn tuyệt đối: giữ nguyên nếu tồn tại
-    - Kiểm tra lần lượt: cwd, SRC_DIR, PROJECT_ROOT
-    - Nếu là đường dẫn tương đối bắt đầu bằng ../ : ưu tiên theo SRC_DIR
+    - Kiểm tra lần lượt: cwd, PROJECT_ROOT, SRC_DIR
+    - Nếu đường dẫn chưa tồn tại (ví dụ thư mục output mới): mặc định trỏ về PROJECT_ROOT
     """
     if not path_str:
         return path_str
     p = Path(path_str)
     if p.is_absolute():
         return str(p.resolve())
-    
-    # Nếu đường dẫn tồn tại ngay tại cwd
+
+    # Nếu tồn tại ở thư mục hiện tại
     if (Path.cwd() / p).exists():
         return str((Path.cwd() / p).resolve())
-        
-    # Nếu đường dẫn tồn tại trong SRC_DIR
+
+    # Nếu tồn tại trong SRC_DIR (thường là models/...)
     if (SRC_DIR / p).exists():
         return str((SRC_DIR / p).resolve())
-        
-    # Nếu đường dẫn tồn tại trong PROJECT_ROOT
+
+    # Nếu tồn tại trong PROJECT_ROOT
     if (PROJECT_ROOT / p).exists():
         return str((PROJECT_ROOT / p).resolve())
 
-    # Nếu bắt đầu bằng ../ (thường là chạy từ src)
+    # Nếu bắt đầu bằng ../ (xử lý tương đối từ src)
     if str(path_str).startswith(".."):
         return str((SRC_DIR / p).resolve())
-        
-    return str((SRC_DIR / p).resolve())
+
+    # Mặc định tạo thư mục mới tại PROJECT_ROOT
+    return str((PROJECT_ROOT / p).resolve())
+
 
 def get_env(key, default=None, resolve=False):
     """Lấy giá trị cấu hình từ biến môi trường (hoặc .env)"""
@@ -73,37 +77,38 @@ def get_env(key, default=None, resolve=False):
     return val
 
 
-
 def resolve_video_path(raw_video_path, json_path=None):
     """
     Xác định vị trí thực tế của video:
     1. Kiểm tra trực tiếp đường dẫn lưu trong JSON.
     2. Nếu không tìm thấy, thử tương đối so với vị trí file JSON.
-    3. Thử tìm theo tên file trong các thư mục Test phổ biến.
+    3. Thử tìm theo tên file trong các thư mục Dataset phổ biến.
     """
     if not raw_video_path:
         return None
     p = Path(raw_video_path)
     if p.exists():
         return str(p.resolve())
-    
+
     if json_path:
         cand_json = (Path(json_path).resolve().parent / raw_video_path)
         if cand_json.exists():
             return str(cand_json.resolve())
-            
-    # Tìm theo tên file trong các thư mục Test phổ biến
+
     video_name = p.name
     search_dirs = [
         Path.cwd(),
-        Path.cwd() / "Test",
-        PROJECT_ROOT / "Test",
-        SRC_DIR / "Test",
-        Path.cwd().parent / "Test"
+        Path.cwd() / "TestDataset",
+        Path.cwd() / "TestDataset" / "Adult",
+        Path.cwd() / "TestDataset" / "Normal",
+        PROJECT_ROOT / "TestDataset",
+        PROJECT_ROOT / "TestDataset" / "Adult",
+        PROJECT_ROOT / "TestDataset" / "Normal",
+        SRC_DIR / "TestDataset",
     ]
     for d in search_dirs:
         cand = d / video_name
         if cand.exists():
             return str(cand.resolve())
-            
+
     return raw_video_path

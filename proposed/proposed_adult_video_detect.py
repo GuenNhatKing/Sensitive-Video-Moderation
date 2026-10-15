@@ -9,6 +9,8 @@ from pathlib import Path
 # Đưa thư mục src vào sys.path để import module dùng chung
 CURRENT_DIR = Path(__file__).resolve().parent
 SRC_DIR = CURRENT_DIR.parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
@@ -34,7 +36,7 @@ def main():
     parser.add_argument(
         "--out_dir",
         type=str,
-        default=get_env("PROPOSED_OUT_DIR", get_env("RESNET_OUT_DIR", "../ProposedLog"), resolve=True),
+        default=get_env("PROPOSED_OUT_DIR", "ProposedLog", resolve=True),
         help="Thư mục lưu log và kết quả phán quyết"
     )
     parser.add_argument(
@@ -46,7 +48,7 @@ def main():
     parser.add_argument(
         "--resnet_model",
         type=str,
-        default=get_env("PROPOSED_MODEL", get_env("RESNET_MODEL", "models/resnet50_adult_normal_fcn_layer4_classifier.pth"), resolve=True),
+        default=get_env("PROPOSED_MODEL", "models/resnet50_adult_normal_fcn_layer4_classifier.pth", resolve=True),
         help="Đường dẫn mô hình ResNet50 FCN (.pth)"
     )
     parser.add_argument(
