@@ -48,15 +48,15 @@ def cut_adult_regions(json_path, output_dir=None, override_video_path=None, padd
 
     # Cấu hình thư mục đầu ra
     if not output_dir:
-        output_dir = get_env("RESNET_CLIPS_OUT_DIR", "../resnet_bad_clips")
+        output_dir = get_env("PROPOSED_CLIPS_OUT_DIR", get_env("RESNET_CLIPS_OUT_DIR", "../proposed_bad_clips"))
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     video_name = Path(video_path).stem
 
     for idx, region in enumerate(adult_regions):
         region_id = region.get("region_id", idx)
-        start_sec = region.get("consistency_start_sec")
-        end_sec = region.get("consistency_end_sec")
+        start_sec = region.get("consistency_start_sec") if region.get("consistency_start_sec") is not None else region.get("start_sec")
+        end_sec = region.get("consistency_end_sec") if region.get("consistency_end_sec") is not None else region.get("end_sec")
 
         if start_sec is None or end_sec is None:
             logging.warning(f"Region {region_id} bị thiếu thời gian start/end. Bỏ qua.")
