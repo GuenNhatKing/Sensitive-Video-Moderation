@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-from collections import defaultdict
 
 import cv2
 import torch
@@ -182,65 +181,35 @@ class ResNetClassifier:
 
         logging.info(f"Bắt đầu tiền xử lí và inference {len(samples)} frames...")
 
-        # Gom nhóm theo target_size để đảm bảo batching hợp lệ
-        # groups: {(target_w, target_h): [(orig_index, tensor, sample, meta_info)]}
-        groups = defaultdict(list)
+        results = []
+        for start in range(0, len(samples), self.batch_size):
+            batch_samples = samples[start:start + self.batch_size]
+            tensors = []
+            meta_list = []
+            for s in batch_samples:
+                frame_bgr = self._get_frame_bgr(s)
+                tensor, _, orig_w, orig_h, target_w, target_h = self._preprocess_frame(frame_bgr)
+                tensors.append(tensor)
+                meta_list.append((orig_w, orig_h, target_w, target_h))
 
-        for idx, sample in enumerate(samples):
-            frame_bgr = self._get_frame_bgr(sample)
-            (
-                tensor,
-                ratio_type,
-                orig_w,
-                orig_h,
-                target_w,
-                target_h
-            ) = self._preprocess_frame(frame_bgr)
+            probabilities = self._predict_batch(tensors)
 
-            meta = {
-                "ratio_type": ratio_type,
-                "orig_w": orig_w,
-                "orig_h": orig_h,
-                "target_w": target_w,
-                "target_h": target_h
-            }
-            groups[(target_w, target_h)].append((idx, tensor, sample, meta))
+            for i, s in enumerate(batch_samples):
+                probs = probabilities[i]
+                predicted_idx = int(torch.argmax(probs).item())
+                adult_probability = float(probs[self.adult_idx].item())
+                orig_w, orig_h, target_w, target_h = meta_list[i]
 
-        # Lưu kết quả theo index gốc để giữ nguyên thứ tự
-        results_by_index = {}
-
-        # Chạy inference theo từng nhóm kích thước
-        for (w, h), items in groups.items():
-            logging.info(f"Đang inference nhóm kích thước {w}x{h} ({items[0][3]['ratio_type']}): {len(items)} frames")
-
-            for start in range(0, len(items), self.batch_size):
-                batch_items = items[start:start + self.batch_size]
-                batch_tensors = [it[1] for it in batch_items]
-
-                probabilities = self._predict_batch(batch_tensors)
-
-                for i, (orig_idx, _, sample, meta) in enumerate(batch_items):
-                    probs = probabilities[i]
-                    predicted_idx = int(torch.argmax(probs).item())
-                    adult_probability = float(probs[self.adult_idx].item())
-
-                    result = {
-                        "region_id": sample.get("region_id"),
-                        "shot_id": sample.get("shot_id"),
-                        "sample_id": sample.get("sample_id"),
-                        "frame_index": sample.get("frame_index"),
-                        "time_sec": sample.get("time_sec"),
-                        "image_path": sample.get("image_path", "in_memory"),
-                        "aspect_ratio_type": meta["ratio_type"],
-                        "original_size": f"{meta['orig_w']}x{meta['orig_h']}",
-                        "input_size": f"{meta['target_w']}x{meta['target_h']}",
-                        "predicted_class": self.classes[predicted_idx],
-                        "adult_probability": round(adult_probability, 6),
-                    }
-                    results_by_index[orig_idx] = result
-
-        # Khôi phục đúng thứ tự ban đầu của danh sách samples
-        results = [results_by_index[i] for i in range(len(samples))]
+                result = {
+                    "frame_index": s.get("frame_index"),
+                    "time_sec": s.get("time_sec"),
+                    "image_path": s.get("image_path", "in_memory"),
+                    "original_size": f"{orig_w}x{orig_h}",
+                    "input_size": f"{target_w}x{target_h}",
+                    "predicted_class": self.classes[predicted_idx],
+                    "adult_probability": round(adult_probability, 6),
+                }
+                results.append(result)
 
         # Ghi file JSON nếu cần
         if save_to_disk and output_json_path:
