@@ -1,4 +1,4 @@
-# Sensitive-Video-Moderation (PBL6)
+# Sensitive-Video-Moderation
 
 Dự án cung cấp hai giải pháp Deep Learning phát hiện và kiểm duyệt video có nội dung người lớn/nhạy cảm:
 1. **Pipeline đề xuất (Proposed Method - thư mục `proposed/`)**: Kiến trúc phễu phân tầng 4 giai đoạn (4-Stage Hierarchical Cascade) kết hợp khai thác miền nén I-frame & biến thiên màu sắc HSV, quét thô độ nhạy cao MobileNetV3-Small, phóng đại không gian 360x640 với chọn mẫu đa dạng cực đại (Max-Min Diversity / FPS), và bộ đánh giá hợp nhất hai nhánh (Sustained NSFW & Flash Insert).
