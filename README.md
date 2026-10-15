@@ -16,12 +16,16 @@ Dự án cung cấp hai giải pháp Deep Learning phát hiện và kiểm duy�
   - [3. Tóm Tắt Luồng Hoạt Động](#3-tóm-tắt-luồng-hoạt-động)
     - [3.1. Pipeline Đề Xuất (Proposed Method - 4 Giai Đoạn)](#31-pipeline-đề-xuất-proposed-method---4-giai-đoạn)
     - [3.2. Pipeline Tham Chiếu (Baseline Paper)](#32-pipeline-tham-chiếu-baseline-paper)
+    - [3.3. Hỗ trợ 3 Tỉ lệ Khung hình Chuẩn (16:9, 9:16, 1:1)](#33-hỗ-trợ-3-tỉ-lệ-khung-hình-chuẩn-169-916-11)
   - [4. Hướng Dẫn Thực Thi \& Tham Số Dòng Lệnh](#4-hướng-dẫn-thực-thi--tham-số-dòng-lệnh)
     - [4.1. Chạy Pipeline Đề Xuất (Proposed)](#41-chạy-pipeline-đề-xuất-proposed)
       - [Bảng tham số `proposed_adult_video_detect.py`:](#bảng-tham-số-proposed_adult_video_detectpy)
     - [4.2. Cắt Clip Vi Phạm (Proposed)](#42-cắt-clip-vi-phạm-proposed)
     - [4.3. Chạy Pipeline Tham Chiếu (Baseline)](#43-chạy-pipeline-tham-chiếu-baseline)
     - [4.4. Cắt Clip Vi Phạm (Baseline)](#44-cắt-clip-vi-phạm-baseline)
+  - [5. Đánh Giá Thực Nghiệm & Bộ Benchmark (E1 - E4)](#5-đánh-giá-thực-nghiệm--bộ-benchmark-e1---e4)
+    - [5.1. Lệnh thực thi Benchmark](#51-lệnh-thực-thi-benchmark)
+    - [5.2. Kết quả thực nghiệm chi tiết](#52-kết-quả-thực-nghiệm-chi-tiết)
 
 ---
 
@@ -88,7 +92,7 @@ MOBILENET_CLIPS_OUT_DIR=../baseline_bad_clips
 ### 3.1. Pipeline Đề Xuất (Proposed Method - 4 Giai Đoạn)
 
 ```
-[Video Input]
+[Video Input (Hỗ trợ 16:9, 9:16, 1:1)]
       │
       ▼
 [Giai Đoạn 1: Miền nén & Biến thiên màu sắc]
@@ -105,7 +109,7 @@ MOBILENET_CLIPS_OUT_DIR=../baseline_bad_clips
       │
       ▼
 [Kiểm tra Anchor Set A]
-      ├─ Nếu A rỗng ──► KẾT THÚC SỚM (Toàn bộ video = NORMAL)
+      ├─ Nếu A rỗng ──► KẾT THÚC SỚM (Toàn bộ video = NORMAL) [Tốc độ 200-500 FPS]
       │
       └─ Nếu có Anchor: Duyệt từng mốc t_0 thuộc A:
             ├─ [Giai Đoạn 3: Phóng đại Không gian & Max-Min Diversity]
@@ -119,7 +123,7 @@ MOBILENET_CLIPS_OUT_DIR=../baseline_bad_clips
                   ├─ Nhánh 2 (Flash Insert):
                   │     (1) Đột biến cô lập: Z_flash(t_0) > 3.0 VÀ P_neighbors_max(t_0) < 0.20
                   │     (2) Đồng thuận chéo: p_mobile(t_0) >= 0.90 VÀ p_resnet(f_t0) >= 0.95
-                  │     (3) Bất biến phóng đại: p_crop(t_0) = ResNet50_FCN(CenterCrop_360x640(f_t0)) >= 0.95
+                  │     (3) Bất biến phóng đại: p_crop(t_0) = ResNet50_FCN(CenterCrop(f_t0)) >= 0.95
                   └─ Decision(t_0) = ADULT nếu Nhánh 1 = True HOẶC Nhánh 2 = True
       │
       ▼
@@ -146,6 +150,13 @@ Chiến lược **Xử lý dòng On-device + Lọc SSIM + Suy luận thời gian
 [Bước 4: Evaluator] ──────────────────► Xác định Video = Adult nếu có frame vi phạm
                                         Lưu kết quả vào 12_final_decision.json
 ```
+
+### 3.3. Hỗ trợ 3 Tỉ lệ Khung hình Chuẩn (16:9, 9:16, 1:1)
+
+Hệ thống chấp nhận đúng 3 tỉ lệ chuẩn tương ứng với các cấu hình tensor đầu vào ResNet-50:
+- **Portrait (9:16)**: Target kích thước `360x640` $\to$ Feature Grid Layer 4: $12 \times 20 = 240$ vùng.
+- **Square (1:1)**: Target kích thước `480x480` $\to$ Feature Grid Layer 4: $15 \times 15 = 225$ vùng.
+- **Landscape (16:9)**: Target kích thước `640x360` $\to$ Feature Grid Layer 4: $20 \times 12 = 240$ vùng.
 
 ---
 
@@ -200,3 +211,77 @@ Sau khi có file `12_final_decision.json`:
 ```bash
 python baseline/cut_mobilenet_regions.py --json "../BaselineLog/N_01/12_final_decision.json"
 ```
+
+---
+
+## 5. Đánh Giá Thực Nghiệm & Bộ Benchmark (E1 - E4)
+
+### 5.1. Lệnh thực thi Benchmark
+
+Chạy toàn bộ 4 bài thực nghiệm (E1 $\to$ E4) và tự động tổng hợp báo cáo:
+```bash
+python ../benchmark/run_all_benchmarks.py
+```
+
+Hoặc chạy từng bài thực nghiệm độc lập:
+* **E1 - Đánh giá mô hình phân loại frame tĩnh**:
+  ```bash
+  python ../benchmark/e1_eval_proposed.py
+  python ../benchmark/e1_eval_baseline.py
+  ```
+* **E2 - Đánh giá bộ lọc khung hình Stage 1**:
+  ```bash
+  python ../benchmark/e2_eval_proposed_stage1.py
+  python ../benchmark/e2_eval_baseline_stage1.py
+  ```
+* **E3 & E4 - Đánh giá toàn bộ Pipeline trên video & Chi phí tính toán**:
+  ```bash
+  python ../benchmark/e3_e4_eval_proposed.py
+  python ../benchmark/e3_e4_eval_baseline.py
+  ```
+
+---
+
+### 5.2. Kết quả thực nghiệm chi tiết
+
+Kết quả đo đạc thực tế trên tập **TestDataset** (20 video, 14,057 frames, chạy hoàn toàn trên CPU):
+
+#### Bảng E1: So sánh mô hình phân loại cấp khung hình (200 frames)
+| Chỉ số | Proposed (ResNet-50 FCN) | Baseline (MobileNetV3-Small) |
+| :--- | :---: | :---: |
+| **Số tham số (Parameters)** | 23.51 M | **0.94 M** |
+| **Kích thước mô hình** | 90.01 MB | **8.62 MB** |
+| **Độ trễ trung bình 1 frame** | 830.08 ms | **187.29 ms** |
+| **Accuracy** | **87.0%** | 85.0% |
+| **Precision** | **91.11%** | 86.46% |
+| **Recall** | 82.0% | **83.0%** |
+| **F1-Score** | **86.32%** | 84.69% |
+| **Độ đồng thuận (Agreement)** | \multicolumn{2}{c|}{**91.0%**} |
+
+#### Bảng E2: So sánh bộ lọc khung hình giai đoạn 1 (14,057 frames)
+| Chỉ số | Proposed Stage 1 (Compressed + HSV Flash) | Baseline Stage 1 (SSIM Filter 224x224) |
+| :--- | :---: | :---: |
+| **Tổng frame đầu vào** | 14,057 | 14,057 |
+| **Frame được chọn** | **1,141** | 7,947 |
+| **Tỉ lệ giảm tải frame** | **91.88%** | 43.47% |
+| **Tốc độ thông lượng** | **128.5 FPS** | 91.7 FPS |
+| **Thời gian trung bình / video** | **5.47 s** | 7.66 s |
+
+#### Bảng E3: So sánh chất lượng phân loại cấp độ Video
+| Chỉ số | Proposed Pipeline (4-Stage Cascade) | Baseline Pipeline (MobileNetV3 + SSIM) |
+| :--- | :---: | :---: |
+| **True Positive (TP)** | 9 / 10 | **10 / 10** |
+| **True Negative (TN)** | **10 / 10** | 4 / 10 |
+| **False Positive (FP - Báo giả)** | **0** *(Không báo nhầm video an toàn)* | 6 *(Báo nhầm 6 video an toàn)* |
+| **False Negative (FN)** | 1 | **0** |
+| **Accuracy** | **95.0%** | 70.0% |
+| **Precision** | **100.0%** | 62.5% |
+| **Recall** | 90.0% | **100.0%** |
+| **F1-Score** | **94.74%** | 76.92% |
+
+#### Bảng E4: Chi phí tính toán & Tỉ lệ giảm tải toàn Pipeline
+| Chỉ số | Proposed Pipeline | Baseline Pipeline |
+| :--- | :---: | :---: |
+| **Tổng số frame chạy qua CNN** | **2,358** | 3,039 |
+| **Tỉ lệ giảm frame qua CNN** | **83.23%** | 78.38% |
+| **Throughput toàn pipeline** | 29.3 FPS | 220.5 FPS |
