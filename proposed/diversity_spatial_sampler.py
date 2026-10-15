@@ -24,6 +24,17 @@ class DiversitySpatialSampler:
         self.time_window_radius = time_window_radius
         self.sampling_fps = sampling_fps
         self.target_num_frames = target_num_frames
+        # Cache bộ nhớ đệm trong RAM cho frame và vector đặc trưng để tránh decode lặp lại
+        # và tự động gộp các cửa sổ thời gian chồng lấn (overlapping windows)
+        self._frame_cache = {}
+        self._vector_cache = {}
+        self._current_cap_pos = -1
+
+    def clear_cache(self):
+        """Giải phóng bộ đệm RAM khi chuyển sang video mới."""
+        self._frame_cache.clear()
+        self._vector_cache.clear()
+        self._current_cap_pos = -1
 
     def _frame_to_unit_vector(self, frame_bgr):
         """
@@ -69,24 +80,50 @@ class DiversitySpatialSampler:
         candidate_timestamps = sorted(list(set(np.round(candidate_timestamps, 4))))
 
         # 3. Đọc dữ liệu các frame trong Omega(t_0) và tính vector đơn vị v_t
+        # Tối ưu hóa: Tránh seek lặp lại trên H.264 GOP, dùng cache RAM và đọc tuần tự tiến lên (Sequential Read)
         omega = []
         anchor_frame_data = anchor.get("frame_data")
         anchor_f_idx = anchor.get("frame_index")
 
-        for ts in candidate_timestamps:
-            f_idx = int(round(ts * fps))
-            # Nếu trùng với anchor và đã có frame_data trên RAM
-            if f_idx == anchor_f_idx and anchor_frame_data is not None:
-                frame = anchor_frame_data
-            else:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
-                ret, frame = cap.read()
-                if not ret:
-                    continue
+        if anchor_f_idx is not None and anchor_frame_data is not None:
+            self._frame_cache[anchor_f_idx] = anchor_frame_data
+            if anchor_f_idx not in self._vector_cache:
+                self._vector_cache[anchor_f_idx] = self._frame_to_unit_vector(anchor_frame_data)
 
-            v_t = self._frame_to_unit_vector(frame)
+        target_f_indices = [int(round(ts * fps)) for ts in candidate_timestamps]
+        missing_indices = sorted(list(set(idx for idx in target_f_indices if idx not in self._frame_cache)))
+
+        if missing_indices:
+            for idx in missing_indices:
+                if 0 <= self._current_cap_pos <= idx and (idx - self._current_cap_pos) <= 30:
+                    while self._current_cap_pos < idx:
+                        ret, _ = cap.read()
+                        if not ret:
+                            break
+                        self._current_cap_pos += 1
+                    ret, frame = cap.read()
+                    if ret:
+                        self._current_cap_pos += 1
+                        self._frame_cache[idx] = frame
+                        self._vector_cache[idx] = self._frame_to_unit_vector(frame)
+                else:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+                    if ret:
+                        self._current_cap_pos = idx + 1
+                        self._frame_cache[idx] = frame
+                        self._vector_cache[idx] = self._frame_to_unit_vector(frame)
+
+        for f_idx in target_f_indices:
+            if f_idx not in self._frame_cache:
+                continue
+            frame = self._frame_cache[f_idx]
+            v_t = self._vector_cache.get(f_idx)
+            if v_t is None:
+                v_t = self._frame_to_unit_vector(frame)
+                self._vector_cache[f_idx] = v_t
+
             is_anchor_frame = bool(f_idx == anchor_f_idx)
-
             omega.append({
                 "frame_index": f_idx,
                 "time_sec": round(f_idx / fps, 4),

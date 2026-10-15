@@ -50,6 +50,14 @@ class CoarseMobileNetFilter:
         self.model = tf.keras.models.load_model(self.model_path)
         logging.info("Tải MobileNetV3-Small thành công trên CPU.")
 
+    def warmup(self):
+        """
+        Chạy nháp (Warm-up pass) với dummy tensor để nạp graph và khởi tạo kernel trước khi đo.
+        """
+        dummy = np.zeros((1, 224, 224, 3), dtype=np.float32)
+        _ = self.model.predict(dummy, verbose=0)
+        logging.info("MobileNetV3-Small Warm-up pass hoàn tất trên RAM.")
+
     def _preprocess_frame(self, frame_bgr):
         resized = cv2.resize(frame_bgr, self.target_size, interpolation=cv2.INTER_LINEAR)
         frame_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)

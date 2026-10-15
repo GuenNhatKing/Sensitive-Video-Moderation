@@ -44,9 +44,18 @@ class DualBranchEvaluator:
         p_mobile_t0 = anchor["p_mobile"]
         z_flash_t0 = anchor["z_flash"]
 
-        # 1. Dự đoán xác suất ResNet-50 FCN cho toàn bộ 5 frames trong D* (Input 360x640)
+        # 1. Dự đoán xác suất ResNet-50 FCN: Gom toàn bộ 5 frames trong D* (Input 360x640)
+        # và 1 frame CenterCrop của anchor f_{t_0} vào đúng 1 Batch 6 frames duy nhất (1 forward pass)
         frame_data_list = [d["frame_data"] for d in d_star_frames]
-        p_resnet_list = resnet_classifier.predict_frame_batch(frame_data_list, is_center_crop=False)
+        anchor_frame_data = anchor.get("frame_data")
+
+        if hasattr(resnet_classifier, "predict_anchor_batch"):
+            p_resnet_list, p_crop_t0 = resnet_classifier.predict_anchor_batch(
+                frame_data_list, anchor_frame_data
+            )
+        else:
+            p_resnet_list = resnet_classifier.predict_frame_batch(frame_data_list, is_center_crop=False)
+            p_crop_t0 = 0.0
 
         d_eval_list = []
         anchor_d_item = None
@@ -75,7 +84,8 @@ class DualBranchEvaluator:
                 "anchor_time_sec": t_0,
                 "decision": "NORMAL",
                 "branch_1": False,
-                "branch_2": False
+                "branch_2": False,
+                "crop_evaluated": False
             }
 
         # ============================================================
@@ -112,19 +122,17 @@ class DualBranchEvaluator:
         )
 
         # Điều kiện (3) Bất biến phóng đại: p_crop(t_0) = ResNet50_FCN( CenterCrop_360x640(f_{t_0}) ) >= 0.95
-        p_crop_t0 = 0.0
+        # p_crop_t0 đã được tính sẵn trong cùng 1 batch với D*, không cần forward pass đơn lẻ
         cond_2_3 = False
+        crop_evaluated = False
         if cond_2_1 and cond_2_2:
-            p_crop_t0 = resnet_classifier.predict_frame_data(
-                anchor["frame_data"],
-                is_center_crop=True
-            )
+            crop_evaluated = True
+            if p_crop_t0 == 0.0 and anchor_frame_data is not None:
+                p_crop_t0 = resnet_classifier.predict_frame_data(
+                    anchor_frame_data,
+                    is_center_crop=True
+                )
             cond_2_3 = bool(p_crop_t0 >= self.flash_crop_threshold)
-        elif cond_branch_1:
-            # Nếu Nhánh 1 đã thỏa mãn, ta chỉ cần ghi nhận kết quả Nhánh 1
-            cond_2_3 = False
-        else:
-            cond_2_3 = False
 
         cond_branch_2 = bool(cond_2_1 and cond_2_2 and cond_2_3)
 
@@ -164,7 +172,8 @@ class DualBranchEvaluator:
                 "cond_cross_consensus": cond_2_2,
                 "cond_zoom_invariance": cond_2_3
             },
-            "d_star": d_eval_list
+            "d_star": d_eval_list,
+            "crop_evaluated": crop_evaluated
         }
 
     def group_adult_regions(self, adult_anchors, max_gap_sec=2.0):

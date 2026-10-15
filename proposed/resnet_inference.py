@@ -6,31 +6,68 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet50
 
 
-# ResNet-50 FCN
+# ============================================================
+# Native ResNet-50 FCN (Thuần PyTorch - Không dùng torchvision, Không dùng Pillow)
+# ============================================================
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+
+    def forward(self, x):
+        identity = x
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        return self.relu(out)
+
+
+def _make_layer(inplanes, planes, blocks, stride=1):
+    downsample = None
+    if stride != 1 or inplanes != planes * Bottleneck.expansion:
+        downsample = nn.Sequential(
+            nn.Conv2d(inplanes, planes * Bottleneck.expansion, kernel_size=1, stride=stride, bias=False),
+            nn.BatchNorm2d(planes * Bottleneck.expansion),
+        )
+    layers = [Bottleneck(inplanes, planes, stride, downsample)]
+    inplanes = planes * Bottleneck.expansion
+    for _ in range(1, blocks):
+        layers.append(Bottleneck(inplanes, planes))
+    return nn.Sequential(*layers), inplanes
+
+
 class ResNet50FCN(nn.Module):
     """
-    ResNet-50 Fully Convolutional.
-    Backbone: ResNet-50 conv layers
-    Classifier: 1x1 Conv
-    Output: Global Average Pooling -> logits [B, num_classes]
+    ResNet-50 Fully Convolutional Network thuần PyTorch.
+    Khớp 100% với checkpoint resnet50_adult_normal_fcn_layer4_classifier.pth
+    Hoàn toàn không phụ thuộc torchvision hay Pillow.
     """
 
     def __init__(self, num_classes):
         super().__init__()
-        backbone = resnet50(weights=None)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.conv1 = backbone.conv1
-        self.bn1 = backbone.bn1
-        self.relu = backbone.relu
-        self.maxpool = backbone.maxpool
-
-        self.layer1 = backbone.layer1
-        self.layer2 = backbone.layer2
-        self.layer3 = backbone.layer3
-        self.layer4 = backbone.layer4
+        self.layer1, inplanes = _make_layer(64, 64, 3)
+        self.layer2, inplanes = _make_layer(inplanes, 128, 4, stride=2)
+        self.layer3, inplanes = _make_layer(inplanes, 256, 6, stride=2)
+        self.layer4, inplanes = _make_layer(inplanes, 512, 3, stride=2)
 
         self.classifier = nn.Conv2d(
             in_channels=2048,
@@ -73,6 +110,12 @@ class ResNetClassifier:
         )
         self.batch_size = batch_size
         self.model_path = model_path
+
+        # Tối ưu hóa số luồng CPU: giải quyết triệt để lỗi thiếu torch.set_num_threads()
+        if self.device.type == "cpu":
+            optimal_threads = min(4, os.cpu_count() or 4)
+            torch.set_num_threads(optimal_threads)
+            logging.info(f"Tối ưu CPU inference: Thiết lập torch.set_num_threads({optimal_threads})")
 
         # ImageNet normalization
         self.imagenet_mean = torch.tensor(
@@ -318,3 +361,52 @@ class ResNetClassifier:
         tensors = [self._preprocess_frame(f, is_center_crop=is_center_crop)[0] for f in frames_bgr]
         probs = self._predict_batch(tensors)
         return [float(p[self.adult_idx].item()) for p in probs]
+
+    def predict_anchor_batch(self, d_star_frames_bgr, anchor_frame_bgr):
+        """
+        Gom toàn bộ 5 frames của D* và 1 frame CenterCrop của anchor vào đúng 1 Batch Tensor duy nhất
+        (shape: [6, 3, H, W]) và gọi ResNet-50 FCN đúng 1 lần duy nhất trên CPU/GPU.
+        
+        Trả về:
+            p_d_star: list float gồm các xác suất Adult cho các frames trong D* (5 frames)
+            p_crop: float xác suất Adult cho frame CenterCrop của anchor (frame thứ 6)
+        """
+        if not d_star_frames_bgr:
+            crop_prob = (
+                self.predict_frame_data(anchor_frame_bgr, is_center_crop=True)
+                if anchor_frame_bgr is not None
+                else 0.0
+            )
+            return [], crop_prob
+
+        # Preprocess toàn bộ frames D* (is_center_crop=False)
+        tensors = [
+            self._preprocess_frame(f, is_center_crop=False)[0]
+            for f in d_star_frames_bgr
+        ]
+
+        # Preprocess 1 frame CenterCrop của anchor (is_center_crop=True)
+        if anchor_frame_bgr is not None:
+            crop_tensor = self._preprocess_frame(anchor_frame_bgr, is_center_crop=True)[0]
+            tensors.append(crop_tensor)
+
+        probs = self._predict_batch(tensors)
+        adult_probs = [float(p[self.adult_idx].item()) for p in probs]
+
+        if anchor_frame_bgr is not None:
+            p_d_star = adult_probs[:-1]
+            p_crop = adult_probs[-1]
+        else:
+            p_d_star = adult_probs
+            p_crop = 0.0
+
+        return p_d_star, p_crop
+
+    def warmup(self):
+        """
+        Chạy nháp 1 tensor giả lập (Warm-up pass) để nạp kernel và cấp phát bộ đệm trước khi bấm giờ.
+        """
+        dummy = torch.zeros((1, 3, 360, 640), device=self.device)
+        with torch.inference_mode():
+            _ = self.model(dummy)
+        logging.info("ResNet-50 FCN Warm-up pass hoàn tất trên RAM.")

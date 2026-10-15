@@ -16,9 +16,8 @@ if str(SRC_DIR) not in sys.path:
 
 from env_config import get_env
 
-# Khởi tạo PyTorch & torchvision trước để tránh xung đột dynamic linker với TensorFlow runtime
+# Khởi tạo PyTorch trước để tránh xung đột dynamic linker với TensorFlow runtime (Thuần PyTorch & OpenCV)
 import torch
-import torchvision
 from proposed.resnet_inference import ResNetClassifier
 from proposed.diversity_spatial_sampler import DiversitySpatialSampler
 from proposed.compressed_color_sampler import CompressedColorSampler
@@ -78,7 +77,14 @@ def main():
     parser.add_argument(
         "--early_stop",
         action="store_true",
-        help="Dừng sớm ngay khi phát hiện mốc vi phạm Adult đầu tiên"
+        default=True,
+        help="Dừng sớm ngay khi phát hiện mốc vi phạm Adult đầu tiên (mặc định: True)"
+    )
+    parser.add_argument(
+        "--no_early_stop",
+        dest="early_stop",
+        action="store_false",
+        help="Không dừng sớm, quét toàn bộ video kể cả khi đã phát hiện Adult"
     )
     parser.add_argument(
         "--save_intermediate",
@@ -97,28 +103,54 @@ def main():
     video_path = Path(args.video).resolve()
     base_out = Path(args.out_dir) / video_path.stem
 
-    logging.info(f"BẮT ĐẦU PIPELINE ĐỀ XUẤT (PROPOSED PIPELINE): {video_path.name}")
-    start_total_time = time.time()
-
     # ============================================================
-    # THAY ĐỔI 1: Khai thác Miền nén & Biến thiên Màu sắc
+    # KHỞI TẠO CÁC MÔ HÌNH VÀ BỘ LỌC TRƯỚC KHI BẤM GIỜ
+    # (Tách biệt hoàn toàn thời gian Disk I/O load model khỏi thời gian xử lý video)
     # ============================================================
-    t0_stage1 = time.time()
+    logging.info("Khởi tạo các mô hình và bộ lọc cho Pipeline đề xuất...")
     stage1_sampler = CompressedColorSampler(
         delta_t=args.delta_t,
         z_threshold=args.z_threshold,
         window_size=15
     )
+    stage2_filter = CoarseMobileNetFilter(
+        model_path=args.mobilenet_model,
+        batch_size=args.batch_size,
+        rejection_threshold=args.rejection_threshold
+    )
+    resnet = ResNetClassifier(model_path=args.resnet_model)
+    diversity_sampler = DiversitySpatialSampler(
+        time_window_radius=1.0,
+        sampling_fps=10.0,
+        target_num_frames=5
+    )
+    evaluator = DualBranchEvaluator()
+
+    # Chạy Warm-up pass trên RAM trước khi bấm giờ
+    logging.info("Thực hiện Warm-up pass (MobileNetV3 & ResNet-50 FCN)...")
+    stage2_filter.warmup()
+    resnet.warmup()
+    logging.info("Hoàn tất Warm-up. Hệ thống sẵn sàng đo đạc thời gian video.")
+
+    # ============================================================
+    # BẮT ĐẦU ĐO THỜI GIAN XỬ LÝ VIDEO
+    # ============================================================
+    logging.info(f"BẮT ĐẦU PIPELINE ĐỀ XUẤT (PROPOSED PIPELINE): {video_path.name}")
+    start_total_time = time.perf_counter()
+
+    # ------------------------------------------------------------
+    # THAY ĐỔI 1: Khai thác Miền nén & Biến thiên Màu sắc
+    # ------------------------------------------------------------
+    t0_stage1 = time.perf_counter()
     samples, shots, video_info = stage1_sampler.sample_video(
         video_path=video_path,
         output_dir=base_out / "01_stage1_frames" if args.save_intermediate else None,
         save_to_disk=args.save_intermediate
     )
-    logging.info(f">> Stage 1 hoàn tất trong {time.time() - t0_stage1:.2f}s.")
+    logging.info(f">> Stage 1 hoàn tất trong {time.perf_counter() - t0_stage1:.2f}s.")
 
     if not samples:
         logging.warning("Không trích xuất được frame nào từ video. Kết luận: NORMAL.")
-        evaluator = DualBranchEvaluator()
         evaluator.evaluate_video(
             video_path=video_path,
             anchor_evaluations=[],
@@ -128,23 +160,16 @@ def main():
         )
         return
 
-    # ============================================================
+    # ------------------------------------------------------------
     # THAY ĐỔI 2: Quét thô Độ nhạy cao bằng MobileNetV3-Small
-    # ============================================================
-    t0_stage2 = time.time()
-    stage2_filter = CoarseMobileNetFilter(
-        model_path=args.mobilenet_model,
-        batch_size=args.batch_size,
-        rejection_threshold=args.rejection_threshold
-    )
+    # ------------------------------------------------------------
+    t0_stage2 = time.perf_counter()
     all_stage2_results, anchor_set = stage2_filter.filter_candidates(
         samples=samples,
         output_json_path=base_out / "02_stage2_coarse.json" if args.save_intermediate else None,
         save_to_disk=args.save_intermediate
     )
-    logging.info(f">> Stage 2 hoàn tất trong {time.time() - t0_stage2:.2f}s.")
-
-    evaluator = DualBranchEvaluator()
+    logging.info(f">> Stage 2 hoàn tất trong {time.perf_counter() - t0_stage2:.2f}s.")
 
     # Early Rejection: Nếu không có mốc nào vượt ngưỡng 0.35 -> Kết luận NORMAL ngay lập tức
     if not anchor_set:
@@ -158,15 +183,11 @@ def main():
         )
         return
 
-    # ============================================================
+    # ------------------------------------------------------------
     # THAY ĐỔI 3 & 4: Phóng đại Không gian (360x640), Chọn 4 Frame Đa dạng Cực đại
-    # & Bộ Đánh giá Hợp nhất Hai Nhánh
-    # ============================================================
-    t0_stage3_4 = time.time()
-    logging.info("Khởi tạo ResNet-50 FCN cho Stage 3 và Stage 4...")
-    resnet = ResNetClassifier(model_path=args.resnet_model)
-    diversity_sampler = DiversitySpatialSampler(time_window_radius=1.0, sampling_fps=10.0, target_num_frames=5)
-
+    # & Bộ Đánh giá Hợp nhất Hai Nhánh (Gom 6 frames vào 1 batch)
+    # ------------------------------------------------------------
+    t0_stage3_4 = time.perf_counter()
     cap = cv2.VideoCapture(str(video_path))
     fps = video_info["fps"]
     duration_sec = video_info["duration_sec"]
@@ -179,7 +200,7 @@ def main():
     for idx, anchor in enumerate(anchor_set, start=1):
         t_0 = anchor["time_sec"]
 
-        # Stage 3: Chọn tập D* (5 frames) có độ đa dạng cực đại
+        # Stage 3: Chọn tập D* (5 frames) có độ đa dạng cực đại (Sequential read + Cache)
         d_star = diversity_sampler.extract_diverse_frames(
             cap=cap,
             fps=fps,
@@ -187,7 +208,7 @@ def main():
             video_duration_sec=duration_sec
         )
 
-        # Stage 4: Đánh giá hợp nhất hai nhánh
+        # Stage 4: Đánh giá hợp nhất hai nhánh (Gom 6 frames trong 1 batch forward pass duy nhất)
         anchor_eval = evaluator.evaluate_anchor(
             anchor=anchor,
             d_star_frames=d_star,
@@ -211,7 +232,8 @@ def main():
             logging.debug(f"{status_str}NORMAL | p_mobile: {anchor['p_mobile']:.3f}, p_resnet: {anchor_eval['p_resnet_anchor']:.3f}")
 
     cap.release()
-    logging.info(f">> Stage 3 & 4 hoàn tất trong {time.time() - t0_stage3_4:.2f}s.")
+    diversity_sampler.clear_cache()
+    logging.info(f">> Stage 3 & 4 hoàn tất trong {time.perf_counter() - t0_stage3_4:.2f}s.")
 
     # ============================================================
     # Tổng kết & Lưu báo cáo
@@ -229,7 +251,7 @@ def main():
         with open(base_out / "04_final_decision.json", "w", encoding="utf-8") as f:
             json.dump(final_result, f, indent=2, ensure_ascii=False)
 
-    total_elapsed = time.time() - start_total_time
+    total_elapsed = time.perf_counter() - start_total_time
     logging.info(
         f"KẾT LUẬN TOÀN BỘ VIDEO: {final_result['final_decision']} "
         f"(Tổng thời gian xử lý: {total_elapsed:.2f}s | "

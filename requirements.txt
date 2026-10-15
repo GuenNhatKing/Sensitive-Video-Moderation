@@ -1,17 +1,14 @@
 # ============================================================
-# PBL6 - Video Content Moderation (Adult Content Detection)
+# Video Content Moderation (Adult Content Detection)
 # ============================================================
 
 # Deep Learning Frameworks
-# (Cài đặt PyTorch với CUDA: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126)
 torch>=2.0.0
-torchvision>=0.15.0
 tensorflow>=2.15.0
 
-# Computer Vision & Image Processing
+# Computer Vision & Image Processing (Thuần OpenCV, không dùng Pillow)
 opencv-python>=4.8.0
 scikit-image>=0.20.0
-Pillow>=9.5.0
 imageio>=2.30.0
 
 # Scientific & Numerical Computing
