@@ -109,11 +109,24 @@ class CompressedColorSampler:
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         if fps <= 0:
             fps = 30.0
         duration_sec = total_frames / fps if fps > 0 else 0.0
 
-        logging.info(f"Phân tích video: {video_path.name} ({total_frames} frames, {fps:.2f} FPS, {duration_sec:.2f}s)")
+        if width > 0 and height > 0:
+            ratio = width / height
+            allowed_ratios = {"16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1.0}
+            is_valid = any(abs(ratio - target) <= 0.08 for target in allowed_ratios.values())
+            if not is_valid:
+                cap.release()
+                raise ValueError(
+                    f"Aspect ratio không hợp lệ: {width}x{height} (ratio={ratio:.4f}). "
+                    f"Chỉ chấp nhận 3 loại tỉ lệ: 16:9, 9:16, hoặc 1:1."
+                )
+
+        logging.info(f"Phân tích video: {video_path.name} ({width}x{height}, {total_frames} frames, {fps:.2f} FPS, {duration_sec:.2f}s)")
 
         # 1. Trích xuất I-frame timestamps
         iframe_timestamps = self.extract_iframe_timestamps(video_path)

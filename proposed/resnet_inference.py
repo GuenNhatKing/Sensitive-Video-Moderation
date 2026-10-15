@@ -83,10 +83,24 @@ class ResNetClassifier:
             [0.229, 0.224, 0.225], dtype=torch.float32
         ).view(3, 1, 1)
 
-        self.target_width = 640
-        self.target_height = 360
+        # Định nghĩa 3 kích thước chuẩn tương ứng với 3 loại tỉ lệ cho phép:
+        self.target_configs = {
+            "portrait": {
+                "ratio": 9 / 16,            # 9:16 (0.5625)
+                "target_size": (360, 640),  # (Width, Height) -> Grid: 20x12 = 240 vùng đặc trưng
+            },
+            "square": {
+                "ratio": 1.0,               # 1:1 (1.0000)
+                "target_size": (480, 480),  # (Width, Height) -> Grid: 15x15 = 225 vùng đặc trưng
+            },
+            "landscape": {
+                "ratio": 16 / 9,            # 16:9 (1.7778)
+                "target_size": (640, 360),  # (Width, Height) -> Grid: 12x20 = 240 vùng đặc trưng
+            },
+        }
+        self.aspect_ratio_tolerance = 0.08
 
-        logging.info("Khởi tạo ResNet-50-FCN | Spatial Grid 360x640 (stride 32: 12x20 = 240 vùng đặc trưng)")
+        logging.info("Khởi tạo ResNet-50-FCN | Hỗ trợ 3 tỉ lệ chuẩn: 16:9 (640x360), 9:16 (360x640), 1:1 (480x480)")
 
         self._load_model()
 
@@ -106,6 +120,32 @@ class ResNetClassifier:
 
         logging.info(f"Load model thành công. Classes: {self.classes}")
 
+    def determine_target_config(self, orig_w, orig_h):
+        """
+        Xác định cấu hình kích thước đích dựa trên tỉ lệ ảnh gốc.
+        Chỉ chấp nhận 3 loại tỉ lệ: 16:9, 9:16, hoặc 1:1.
+        """
+        if orig_w <= 0 or orig_h <= 0:
+            raise ValueError(f"Kích thước không hợp lệ: {orig_w}x{orig_h}")
+
+        current_ratio = orig_w / orig_h
+        best_name = None
+        best_error = float("inf")
+
+        for name, config in self.target_configs.items():
+            error = abs(current_ratio - config["ratio"])
+            if error < best_error:
+                best_error = error
+                best_name = name
+
+        if best_error > self.aspect_ratio_tolerance:
+            raise ValueError(
+                f"Aspect ratio không hợp lệ: {orig_w}x{orig_h} (ratio={current_ratio:.4f}). "
+                f"Chỉ chấp nhận 3 loại tỉ lệ: 16:9, 9:16, hoặc 1:1."
+            )
+
+        return best_name, self.target_configs[best_name]["target_size"]
+
     def _get_frame_bgr(self, sample):
         frame_bgr = sample.get("frame_data")
         if frame_bgr is None:
@@ -118,39 +158,49 @@ class ResNetClassifier:
             raise ValueError("Không thể đọc frame.")
         return frame_bgr
 
-    def crop_center_360x640(self, frame_bgr):
+    def crop_center(self, frame_bgr, target_w, target_h):
         """
-        Thực hiện CenterCrop với kích thước 360x640 (Height=360, Width=640).
-        Nếu ảnh nhỏ hơn 360x640, lấy vùng trung tâm 70% và resize về 360x640.
+        Thực hiện CenterCrop theo kích thước target tương ứng của từng tỉ lệ:
+        - 16:9: CenterCrop 640x360
+        - 9:16: CenterCrop 360x640
+        - 1:1: CenterCrop 480x480
+        Nếu ảnh nhỏ hơn kích thước target, lấy vùng trung tâm 70% và resize về (target_w, target_h).
         """
         orig_h, orig_w = frame_bgr.shape[:2]
-        if orig_h >= self.target_height and orig_w >= self.target_width:
-            y1 = (orig_h - self.target_height) // 2
-            x1 = (orig_w - self.target_width) // 2
-            crop = frame_bgr[y1:y1 + self.target_height, x1:x1 + self.target_width]
+        if orig_h >= target_h and orig_w >= target_w:
+            y1 = (orig_h - target_h) // 2
+            x1 = (orig_w - target_w) // 2
+            crop = frame_bgr[y1:y1 + target_h, x1:x1 + target_w]
         else:
             crop_h = max(1, int(orig_h * 0.7))
             crop_w = max(1, int(orig_w * 0.7))
             y1 = (orig_h - crop_h) // 2
             x1 = (orig_w - crop_w) // 2
             crop = frame_bgr[y1:y1 + crop_h, x1:x1 + crop_w]
-            crop = cv2.resize(crop, (self.target_width, self.target_height), interpolation=cv2.INTER_LINEAR)
+            crop = cv2.resize(crop, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
         return crop
+
+    def crop_center_360x640(self, frame_bgr):
+        """Tương thích ngược: tự động xác định kích thước CenterCrop phù hợp theo tỉ lệ frame."""
+        orig_h, orig_w = frame_bgr.shape[:2]
+        _, (target_w, target_h) = self.determine_target_config(orig_w, orig_h)
+        return self.crop_center(frame_bgr, target_w, target_h)
 
     def _preprocess_frame(self, frame_bgr, is_center_crop=False):
         """
-        Chuẩn hóa frame đưa vào ResNet-50 FCN:
-        - Mặc định: resize trực tiếp về 360x640 (Height=360, Width=640)
-        - Nếu is_center_crop=True: thực hiện CenterCrop 360x640
+        Chuẩn hóa frame đưa vào ResNet-50 FCN theo đúng tỉ lệ (16:9, 9:16, 1:1):
+        - Mặc định: resize về target size (640x360, 360x640, hoặc 480x480)
+        - Nếu is_center_crop=True: thực hiện CenterCrop tương ứng
         """
         orig_h, orig_w = frame_bgr.shape[:2]
+        ratio_type, (target_w, target_h) = self.determine_target_config(orig_w, orig_h)
 
         if is_center_crop:
-            img = self.crop_center_360x640(frame_bgr)
+            img = self.crop_center(frame_bgr, target_w, target_h)
         else:
-            if (orig_w, orig_h) != (self.target_width, self.target_height):
-                interp = cv2.INTER_AREA if (orig_w > self.target_width and orig_h > self.target_height) else cv2.INTER_LINEAR
-                img = cv2.resize(frame_bgr, (self.target_width, self.target_height), interpolation=interp)
+            if (orig_w, orig_h) != (target_w, target_h):
+                interp = cv2.INTER_AREA if (orig_w > target_w and orig_h > target_h) else cv2.INTER_LINEAR
+                img = cv2.resize(frame_bgr, (target_w, target_h), interpolation=interp)
             else:
                 img = frame_bgr
 
@@ -161,7 +211,7 @@ class ResNetClassifier:
         tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
         tensor = (tensor - self.imagenet_mean) / self.imagenet_std
 
-        return tensor, "custom", orig_w, orig_h, self.target_width, self.target_height
+        return tensor, ratio_type, orig_w, orig_h, target_w, target_h
 
     def _predict_batch(self, tensors):
         batch = torch.stack(tensors, dim=0).to(self.device, non_blocking=True)

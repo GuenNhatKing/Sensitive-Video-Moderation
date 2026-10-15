@@ -26,6 +26,17 @@ class FrameExtractor:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         duration = total_frames / video_fps if video_fps > 0 else 0
 
+        if width > 0 and height > 0:
+            ratio = width / height
+            allowed_ratios = {"16:9": 16 / 9, "9:16": 9 / 16, "1:1": 1.0}
+            is_valid = any(abs(ratio - target) <= 0.08 for target in allowed_ratios.values())
+            if not is_valid:
+                cap.release()
+                raise ValueError(
+                    f"Aspect ratio không hợp lệ: {width}x{height} (ratio={ratio:.4f}). "
+                    f"Chỉ chấp nhận 3 loại tỉ lệ: 16:9, 9:16, hoặc 1:1."
+                )
+
         logging.info(f"Thông tin Video: {width}x{height} | {video_fps:.2f} FPS | Tổng {total_frames} frames | {duration:.2f}s")
         
         if save_to_disk and output_dir:
