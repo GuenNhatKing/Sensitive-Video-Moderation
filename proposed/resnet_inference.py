@@ -84,25 +84,10 @@ class ResNetClassifier:
             [0.229, 0.224, 0.225], dtype=torch.float32
         ).view(3, 1, 1)
 
-        # Định nghĩa 3 kích thước chuẩn (Width, Height) và tỉ lệ tương ứng
-        self.target_configs = {
-            "portrait": {
-                "ratio": 9 / 16,
-                "target_size": (180, 320)  # (Width, Height)
-            },
-            "square": {
-                "ratio": 1.0,
-                "target_size": (240, 240)
-            },
-            "landscape": {
-                "ratio": 16 / 9,
-                "target_size": (320, 180)
-            },
-        }
+        self.target_width = 640
+        self.target_height = 360
 
-        self.aspect_ratio_tolerance = 0.05
-
-        logging.info("Khởi tạo ResNet-50-FCN | Inference với Auto-Resize")
+        logging.info("Khởi tạo ResNet-50-FCN | Spatial Grid 360x640 (stride 32: 12x20 = 240 vùng đặc trưng)")
 
         self._load_model()
 
@@ -122,32 +107,6 @@ class ResNetClassifier:
 
         logging.info(f"Load model thành công. Classes: {self.classes}")
 
-    def _determine_target_config(self, orig_width, orig_height):
-        """
-        Kiểm tra frame thuộc portrait, square, hay landscape.
-        """
-        if orig_width <= 0 or orig_height <= 0:
-            raise ValueError(f"Kích thước không hợp lệ: {orig_width}x{orig_height}")
-
-        current_ratio = orig_width / orig_height
-
-        best_name = None
-        best_error = float("inf")
-
-        for name, config in self.target_configs.items():
-            error = abs(current_ratio - config["ratio"])
-            if error < best_error:
-                best_error = error
-                best_name = name
-
-        if best_error > self.aspect_ratio_tolerance:
-            raise ValueError(
-                f"Aspect ratio không hợp lệ: {orig_width}x{orig_height} "
-                f"(ratio={current_ratio:.4f}). Chỉ chấp nhận 9:16, 1:1, hoặc 16:9."
-            )
-
-        return best_name, self.target_configs[best_name]["target_size"]
-
     def _get_frame_bgr(self, sample):
         frame_bgr = sample.get("frame_data")
         if frame_bgr is None:
@@ -160,26 +119,50 @@ class ResNetClassifier:
             raise ValueError("Không thể đọc frame.")
         return frame_bgr
 
-    def _preprocess_frame(self, frame_bgr):
+    def crop_center_360x640(self, frame_bgr):
+        """
+        Thực hiện CenterCrop với kích thước 360x640 (Height=360, Width=640).
+        Nếu ảnh nhỏ hơn 360x640, lấy vùng trung tâm 70% và resize về 360x640.
+        """
+        orig_h, orig_w = frame_bgr.shape[:2]
+        if orig_h >= self.target_height and orig_w >= self.target_width:
+            y1 = (orig_h - self.target_height) // 2
+            x1 = (orig_w - self.target_width) // 2
+            crop = frame_bgr[y1:y1 + self.target_height, x1:x1 + self.target_width]
+        else:
+            crop_h = max(1, int(orig_h * 0.7))
+            crop_w = max(1, int(orig_w * 0.7))
+            y1 = (orig_h - crop_h) // 2
+            x1 = (orig_w - crop_w) // 2
+            crop = frame_bgr[y1:y1 + crop_h, x1:x1 + crop_w]
+            crop = cv2.resize(crop, (self.target_width, self.target_height), interpolation=cv2.INTER_LINEAR)
+        return crop
+
+    def _preprocess_frame(self, frame_bgr, is_center_crop=False):
+        """
+        Chuẩn hóa frame đưa vào ResNet-50 FCN:
+        - Mặc định: resize trực tiếp về 360x640 (Height=360, Width=640)
+        - Nếu is_center_crop=True: thực hiện CenterCrop 360x640
+        """
         orig_h, orig_w = frame_bgr.shape[:2]
 
-        ratio_type, (target_w, target_h) = self._determine_target_config(
-            orig_w, orig_h
-        )
-
-        # Thu nhỏ / Resize về kích thước chuẩn (Width, Height)
-        if (orig_w, orig_h) != (target_w, target_h):
-            interpolation = cv2.INTER_AREA if (orig_w > target_w and orig_h > target_h) else cv2.INTER_LINEAR
-            frame_bgr = cv2.resize(frame_bgr, (target_w, target_h), interpolation=interpolation)
+        if is_center_crop:
+            img = self.crop_center_360x640(frame_bgr)
+        else:
+            if (orig_w, orig_h) != (self.target_width, self.target_height):
+                interp = cv2.INTER_AREA if (orig_w > self.target_width and orig_h > self.target_height) else cv2.INTER_LINEAR
+                img = cv2.resize(frame_bgr, (self.target_width, self.target_height), interpolation=interp)
+            else:
+                img = frame_bgr
 
         # BGR -> RGB
-        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        frame_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # Chuẩn hóa Tensor [0, 1] và trừ ImageNet mean/std
         tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
         tensor = (tensor - self.imagenet_mean) / self.imagenet_std
 
-        return tensor, ratio_type, orig_w, orig_h, target_w, target_h
+        return tensor, "custom", orig_w, orig_h, self.target_width, self.target_height
 
     def _predict_batch(self, tensors):
         batch = torch.stack(tensors, dim=0).to(self.device, non_blocking=True)
@@ -272,3 +255,23 @@ class ResNetClassifier:
 
         logging.info(f"Hoàn thành inference: {len(results)} frames.")
         return results
+
+    def predict_frame_data(self, frame_bgr, is_center_crop=False):
+        """
+        Dự đoán xác suất Adult cho 1 frame BGR trực tiếp trên RAM.
+        Nếu is_center_crop=True: cắt vùng trung tâm 360x640 trước khi đưa vào mô hình.
+        """
+        tensor, _, _, _, _, _ = self._preprocess_frame(frame_bgr, is_center_crop=is_center_crop)
+        probs = self._predict_batch([tensor])
+        adult_prob = float(probs[0, self.adult_idx].item())
+        return adult_prob
+
+    def predict_frame_batch(self, frames_bgr, is_center_crop=False):
+        """
+        Dự đoán xác suất Adult theo batch cho danh sách frame BGR.
+        """
+        if not frames_bgr:
+            return []
+        tensors = [self._preprocess_frame(f, is_center_crop=is_center_crop)[0] for f in frames_bgr]
+        probs = self._predict_batch(tensors)
+        return [float(p[self.adult_idx].item()) for p in probs]

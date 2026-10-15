@@ -20,7 +20,6 @@ scipy>=1.10.0
 
 # Video Processing & Shot Boundary Detection
 ffmpeg-python>=0.2.0
-transnetv2-pytorch>=1.0.0
 
 # Progress bar & Utilities
 tqdm>=4.65.0
