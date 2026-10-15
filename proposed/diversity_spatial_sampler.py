@@ -4,7 +4,7 @@ import numpy as np
 
 
 class DiversitySpatialSampler:
-    """
+    r"""
     THAY ĐỔI 3: Phóng đại Không gian (360x640) & Chọn 4 Frame Đa dạng Cực đại
     (Thay thế Dense Sampling 10 FPS ở 180x320)
     - Grid mới 360x640: ceil(360/32) x ceil(640/32) = 12 x 20 = 240 vùng đặc trưng.

@@ -14,11 +14,13 @@ if str(SRC_DIR) not in sys.path:
 
 from env_config import get_env
 
-# Import 4 thành phần theo 4 THAY ĐỔI
+# Khởi tạo PyTorch & torchvision trước để tránh xung đột dynamic linker với TensorFlow runtime
+import torch
+import torchvision
+from proposed.resnet_inference import ResNetClassifier
+from proposed.diversity_spatial_sampler import DiversitySpatialSampler
 from proposed.compressed_color_sampler import CompressedColorSampler
 from proposed.coarse_mobilenet_filter import CoarseMobileNetFilter
-from proposed.diversity_spatial_sampler import DiversitySpatialSampler
-from proposed.resnet_inference import ResNetClassifier
 from proposed.dual_branch_evaluator import DualBranchEvaluator
 
 import cv2

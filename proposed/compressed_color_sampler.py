@@ -218,3 +218,4 @@ class CompressedColorSampler:
             "shots": shots
         }
         return samples, shots, video_info
+

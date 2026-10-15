@@ -131,3 +131,4 @@ class CoarseMobileNetFilter:
             logging.info(f"Đã lưu kết quả Stage 2: {output_json_path}")
 
         return all_results, anchor_set
+
