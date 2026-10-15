@@ -21,8 +21,12 @@ Thumbs.db
 *.log
 MobilenetLog/
 ResnetLog/
+ProposedLog/
+BaselineLog/
 mobilenet_bad_clips/
 resnet_bad_clips/
+proposed_bad_clips/
+baseline_bad_clips/
 
 # External cloned repositories (TransNetV2 được clone riêng)
 TransNetV2/
